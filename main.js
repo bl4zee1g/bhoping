@@ -12,7 +12,8 @@ const msg = (t) => ($('msg').textContent = t);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
 
@@ -20,7 +21,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x14161c);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.9;
+scene.environmentIntensity = 0.7;
 const sun = new THREE.DirectionalLight(0xfff1dd, 2.2);
 sun.position.set(-1, 2, -1.5);
 scene.add(sun);
@@ -31,6 +32,8 @@ const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.005, 
 camera.rotation.y = Math.PI;
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enabled = false;
+camera.position.set(0, 0, 0);
+camera.rotation.set(0, Math.PI, 0);   // OrbitControls' constructor resets orientation
 
 function setFov(h) {
   camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(h / 2)) * 0.75));
@@ -108,7 +111,7 @@ function bindToRig(mesh) {
   mesh.bindMode = THREE.DetachedBindMode;
   mesh.bind(skel, new THREE.Matrix4());
   mesh.frustumCulled = false;
-  vm.add(mesh);
+  scene.add(mesh);  // detached binding: bones already carry the viewmodel offset
   return mesh;
 }
 
@@ -130,6 +133,8 @@ async function init() {
 
   // the AK's own skeleton is a secondary skeleton attached to the viewmodel's `wpn` bone
   weaponRoot = [...rigBones.values()].find((o) => /ak47vnmskel$/.test(o.name));
+  // the secondary skeleton is stored in glTF axes; undo root_motion's Source->glTF axis swap
+  weaponRoot.quaternion.copy(rigBones.get('root_motion').quaternion).invert();
   rigBones.get('wpn').add(weaponRoot);
 
   msg('Loading weapon…');
@@ -145,7 +150,7 @@ async function init() {
       m.material = new THREE.MeshPhysicalMaterial({
         map: akColor, normalMap: akNormal, normalScale: new THREE.Vector2(1, -1),
         aoMap: akORM, roughnessMap: akORM, metalnessMap: akORM, roughness: 1, metalness: 1,
-        iridescence: 0.4, iridescenceIOR: 1.6, clearcoat: 0.35, clearcoatRoughness: 0.25,
+        iridescence: 0.0, iridescenceIOR: 1.6, clearcoat: 0.3, clearcoatRoughness: 0.25,
       });
     }
     akWeaponBone = m.skeleton.bones.findIndex((b) => b.name === 'weapon');
@@ -305,6 +310,7 @@ addEventListener('resize', () => {
 // ---------------------------------------------------------------- main loop
 const clock = new THREE.Clock();
 function frame() {
+  requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer) {
     mixer.update(dt);
@@ -314,14 +320,13 @@ function frame() {
   }
   if (controls.enabled) controls.update();
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
 }
 
 init().then(() => {
   mixer.addEventListener('finished', (e) => {
     if (e.action === current && current._name !== 'idle_ak') idle();
   });
-  window.__vm = { play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm };
+  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm };
   msg('Ready');
   $('start').style.display = '';
   $('start').onclick = async () => {
