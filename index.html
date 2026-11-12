@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>bhoping | CS2 viewmodel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#0b0c10;color:#cfd3dc;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  #hud{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button,label.chk{background:#171a22cc;border:1px solid #2b3040;color:#e6e9f0;padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit;backdrop-filter:blur(6px)}
+  button:hover{border-color:#6d7bd6}
+  #info{position:fixed;right:16px;top:16px;background:#171a22cc;border:1px solid #2b3040;border-radius:8px;padding:10px 14px;max-width:340px;backdrop-filter:blur(6px)}
+  #info h3{margin:0 0 6px;font-size:13px;color:#fff}
+  #info div{color:#9aa1b5}
+  #info b{color:#e6e9f0;font-weight:600}
+  #status{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:#0b0c10;z-index:5;transition:opacity .4s}
+  #status.hide{opacity:0;pointer-events:none}
+  #status button{font-size:15px;padding:10px 22px}
+  kbd{background:#252a38;border-radius:3px;padding:0 5px;margin-left:4px}
+  input[type=range]{vertical-align:middle;width:90px}
+</style>
+</head>
+<body>
+<div id="status"><div id="msg">Loading…</div><button id="start" style="display:none">Start</button></div>
+<div id="info">
+  <h3>Viewmodel</h3>
+  <div><b>Arms</b> Vypa | Guerrilla Warfare</div>
+  <div><b>Gloves</b> Sport Gloves | Pandora's Box (FN, 0.0700, seed 956)</div>
+  <div><b>Weapon</b> AK-47 | Midnight Laminate (0.0300, seed 429)</div>
+  <div><b>Stickers</b> Elemental Craft | Lightning (Foil) ×4</div>
+  <div><b>Charm</b> Jelly (pattern 77733)</div>
+</div>
+<div id="hud">
+  <button id="bInspect">Inspect <kbd>F</kbd></button>
+  <button id="bVar">Variation: <span id="varLabel">1</span> <kbd>V</kbd></button>
+  <button id="bDraw">Draw <kbd>Q</kbd></button>
+  <button id="bDrawInspect">Draw + inspect <kbd>R</kbd></button>
+  <label class="chk"><input type="checkbox" id="cFree"> Free camera</label>
+  <label class="chk"><input type="checkbox" id="cSound" checked> Sound</label>
+  <label class="chk">FOV <input type="range" id="rFov" min="50" max="90" value="68"> <span id="fovLabel">68</span></label>
+</div>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
