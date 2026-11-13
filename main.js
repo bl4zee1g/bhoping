@@ -1,30 +1,63 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from './vendor/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from './vendor/jsm/environments/RoomEnvironment.js';
 
 const FPS = 30;                       // CS2 clip frame rate; event times in the clips are frames
-const INCH = 0.0254;
 const $ = (id) => document.getElementById(id);
 const msg = (t) => ($('msg').textContent = t);
 
 // ---------------------------------------------------------------- renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x14161c);
+scene.background = null;   // the page CSS provides the studio backdrop
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.7;
-const sun = new THREE.DirectionalLight(0xfff1dd, 2.2);
-sun.position.set(-1, 2, -1.5);
-scene.add(sun);
+// Neutral studio env: a dark box with three soft white panels. RoomEnvironment has
+// bright, coloured panels that turn leather and skin flat white on the highlight side.
+function studioEnv() {
+  const s = new THREE.Scene();
+  s.add(new THREE.Mesh(new THREE.BoxGeometry(12, 12, 12),
+    new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0x0b0d11 })));
+  const panel = (w, h, k, pos) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffffff).multiplyScalar(k) }));
+    m.position.set(...pos);
+    m.lookAt(0, 0, 0);
+    s.add(m);
+  };
+  panel(7, 3.5, 5.0, [-2.6, 3.2, 2.0]);   // key softbox, upper left, in front
+  panel(3, 5, 1.6, [3.4, 0.6, -1.4]);      // cool fill, right/behind
+  panel(7, 2, 0.7, [0, -2.6, 1.6]);        // floor bounce
+  return pmrem.fromScene(s, 0.02).texture;
+}
+scene.environment = studioEnv();
+// dim environment: the inspect view is lit by a soft key, not a bright room, so specular
+// stays in the highlights instead of washing the leather and glove leather flat white
+scene.environmentIntensity = 0.75;
+// camera looks down +Z, so lights are placed in viewmodel space
+const key = new THREE.DirectionalLight(0xeef3ff, 2.0);
+key.position.set(-0.4, 1.3, 0.2);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.004;
+Object.assign(key.shadow.camera, { near: 0.02, far: 3, left: -0.7, right: 0.7, top: 0.7, bottom: -0.7 });
+key.shadow.camera.updateProjectionMatrix();
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xc2d4ff, 0.7);
+rim.position.set(0.9, 0.25, -0.5);
+scene.add(rim);
+const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+fill.position.set(0.5, -0.4, 0.5);
+scene.add(fill);
 
 // Viewmodel space: Source (x fwd, y left, z up) -> glTF (+z fwd, +x left, +y up), so the
 // camera sits at the origin and looks down +Z. CS2 default viewmodel_fov 68 @ 4:3 => 54deg vertical.
@@ -35,16 +68,21 @@ controls.enabled = false;
 camera.position.set(0, 0, 0);
 camera.rotation.set(0, Math.PI, 0);   // OrbitControls' constructor resets orientation
 
+// The inspect view sits further back than a live viewmodel: the whole gun reads at once and
+// the hands stay inside the frame. zoom keeps the 68deg perspective and only changes scale.
+const VM_ZOOM = 0.7;
 function setFov(h) {
   camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(h / 2)) * 0.75));
+  camera.zoom = VM_ZOOM;
   camera.updateProjectionMatrix();
   $('fovLabel').textContent = h;
 }
 setFov(68);
 
-// default viewmodel_offset (2.5, 0, -1.5) inches: right / forward / up
+// viewmodel_offset (2.5, 0, -1.5) inches: right / forward / up, pulled right so the gun sits
+// in the lower-right like the in-game inspect camera
 const vm = new THREE.Group();
-vm.position.set(-2.5 * INCH, -1.5 * INCH, 0);
+vm.position.set(-0.1, 0.0, 0);
 scene.add(vm);
 
 // ---------------------------------------------------------------- loading
@@ -65,6 +103,8 @@ function tex(u, srgb = true) {
 }
 
 const CLIPS = ['idle_ak', 'draw_ak', 'lookat01_ak', 'lookat03_ak', 'lookat01_draw_ak', 'lookat03_draw_ak'];
+// [rotation deg from item.json, z along the receiver toward the muzzle, y up], AK model space
+const STICKERS = [[-90, -0.030, 0.062], [93, 0.040, 0.064], [-105, 0.110, 0.060], [78, 0.180, 0.064]];
 const SOUND_FILES = {
   m1: 'movement1', m2: 'movement2', m3: 'movement3', draw: 'ak47_draw', bolt: 'ak47_boltpull_01',
 };
@@ -77,7 +117,7 @@ const EVENTS = {
   draw_ak: [[5, 'draw'], [8, 'bolt']],
 };
 
-let rig, mixer, clipMap = {}, weaponRoot;
+let rig, mixer, clipMap = {}, weaponRoot, stkRoot;
 const rigBones = new Map();
 
 function skinnedMeshes(root, filter) {
@@ -111,6 +151,7 @@ function bindToRig(mesh) {
   mesh.bindMode = THREE.DetachedBindMode;
   mesh.bind(skel, new THREE.Matrix4());
   mesh.frustumCulled = false;
+  mesh.castShadow = mesh.receiveShadow = true;
   scene.add(mesh);  // detached binding: bones already carry the viewmodel offset
   return mesh;
 }
@@ -148,15 +189,39 @@ async function init() {
     if (/sticker_gaps/.test(m.material.name)) { m.visible = false; }
     else {
       m.material = new THREE.MeshPhysicalMaterial({
-        map: akColor, normalMap: akNormal, normalScale: new THREE.Vector2(1, -1),
+        map: akColor, normalMap: akNormal, normalScale: new THREE.Vector2(0.85, -0.85),
         aoMap: akORM, roughnessMap: akORM, metalnessMap: akORM, roughness: 1, metalness: 1,
-        iridescence: 0.0, iridescenceIOR: 1.6, clearcoat: 0.3, clearcoatRoughness: 0.25,
+        envMapIntensity: 0.55, clearcoat: 0.12, clearcoatRoughness: 0.35,
       });
     }
     akWeaponBone = m.skeleton.bones.findIndex((b) => b.name === 'weapon');
     const ibm = m.skeleton.boneInverses[akWeaponBone].clone();
     bindToRig(m);
     window.__akIBM = ibm;
+  }
+
+  // Foil stickers: four decals on the receiver's camera-facing side. Rotations are the ones
+  // from item.json; positions follow the in-game slot band on the front half of the receiver.
+  const stkTex = await texLoader.loadAsync('assets/tex/sticker_lightning.png');
+  stkTex.colorSpace = THREE.SRGBColorSpace;
+  stkTex.anisotropy = 8;
+  const stkMat = new THREE.MeshStandardMaterial({
+    map: stkTex, transparent: true, depthWrite: false, roughness: 0.3, metalness: 0.35,
+    envMapIntensity: 1.2, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  });
+  const stkGeo = new THREE.PlaneGeometry(0.072, 0.082);
+  stkRoot = new THREE.Group();
+  stkRoot.matrixAutoUpdate = false;
+  stkRoot.matrix.copy(window.__akIBM);
+  rigBones.get('weapon').add(stkRoot);
+  const faceX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  for (const [deg, z, y] of STICKERS) {
+    const s = new THREE.Mesh(stkGeo, stkMat);
+    s.position.set(0.0305, y, z);
+    s.quaternion.copy(faceX).multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(deg)));
+    stkRoot.add(s);
   }
 
   msg('Loading gloves and arms…');
@@ -168,8 +233,8 @@ async function init() {
   for (const m of skinnedMeshes(armsGltf.scene)) {
     const n = m.material.name;
     m.material = /glove/.test(n)
-      ? new THREE.MeshStandardMaterial({ map: gloveTex, normalMap: gloveNrm, roughness: 0.82, metalness: 0.0, side: THREE.DoubleSide })
-      : new THREE.MeshStandardMaterial({ map: armTex, normalMap: armNrm, roughness: 0.55, metalness: 0.0, side: THREE.DoubleSide });
+      ? new THREE.MeshStandardMaterial({ map: gloveTex, normalMap: gloveNrm, normalScale: new THREE.Vector2(1, -1), roughness: 0.68, metalness: 0.0, envMapIntensity: 0.45, side: THREE.DoubleSide })
+      : new THREE.MeshStandardMaterial({ map: armTex, normalMap: armNrm, normalScale: new THREE.Vector2(1, -1), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.35, side: THREE.DoubleSide });
     bindToRig(m);
   }
 
@@ -183,7 +248,7 @@ async function init() {
 // ---------------------------------------------------------------- charm (pendulum)
 const charm = { group: null, pivot: new THREE.Group(), dir: new THREE.Vector3(0, -1, 0), vel: new THREE.Vector3(), prev: null, prevVel: new THREE.Vector3() };
 // attachment point in AK model space (x = sticker side, y = up, z = toward muzzle)
-const CHARM_ATTACH = new THREE.Vector3(0.026, -0.012, 0.062);
+const CHARM_ATTACH = new THREE.Vector3(0.040, 0.095, 0.180);
 async function initCharm() {
   const g = await load('assets/charm/kc_wpn_ak_jelly.glb');
   g.scene.traverse((o) => {
@@ -326,7 +391,7 @@ init().then(() => {
   mixer.addEventListener('finished', (e) => {
     if (e.action === current && current._name !== 'idle_ak') idle();
   });
-  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm };
+  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm, stkRoot };
   msg('Ready');
   $('start').style.display = '';
   $('start').onclick = async () => {

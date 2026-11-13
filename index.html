@@ -5,12 +5,16 @@
 <title>bhoping | CS2 viewmodel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  html,body{margin:0;height:100%;background:#0b0c10;color:#cfd3dc;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  html,body{margin:0;height:100%;color:#cfd3dc;font:13px/1.4 system-ui,sans-serif;overflow:hidden;
+    background:
+      radial-gradient(120% 90% at 50% 0%,#262a33 0%,#1b1e25 45%,#121418 100%);}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(75% 65% at 55% 45%,transparent 40%,#0708099e 100%)}
   canvas{display:block;width:100%;height:100%}
-  #hud{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #hud{position:fixed;z-index:2;left:16px;bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   button,label.chk{background:#171a22cc;border:1px solid #2b3040;color:#e6e9f0;padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit;backdrop-filter:blur(6px)}
   button:hover{border-color:#6d7bd6}
-  #info{position:fixed;right:16px;top:16px;background:#171a22cc;border:1px solid #2b3040;border-radius:8px;padding:10px 14px;max-width:340px;backdrop-filter:blur(6px)}
+  #info{position:fixed;z-index:2;right:16px;top:16px;background:#171a22cc;border:1px solid #2b3040;border-radius:8px;padding:10px 14px;max-width:340px;backdrop-filter:blur(6px)}
   #info h3{margin:0 0 6px;font-size:13px;color:#fff}
   #info div{color:#9aa1b5}
   #info b{color:#e6e9f0;font-weight:600}
