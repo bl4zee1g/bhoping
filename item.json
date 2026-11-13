@@ -3,7 +3,7 @@
     "name": "AK-47 | Midnight Laminate",
     "defindex": 7, "paintindex": 1218, "paintseed": 429, "wear": 0.02996954321861267,
     "stickers": [
-      {"slot": 1, "id": 7901, "name": "Elemental Craft | Lightning (Foil)", "rotation": -90.0, "offset_x": -0.06357872486114502, "offset_y": 0.0031804144382476807},
+      {"slot": 1, "id": 7901, "name": "Sticker | Bolt Strike (Foil)", "rotation": -90.0, "offset_x": -0.06357872486114502, "offset_y": 0.0031804144382476807},
       {"slot": 3, "id": 7901, "rotation": 93.0, "offset_x": 0.2097722291946411, "offset_y": -0.0027854740619659424},
       {"slot": 3, "id": 7901, "rotation": -105.0, "offset_x": 0.2763873338699341, "offset_y": 0.0024720728397369385},
       {"slot": 3, "id": 7901, "rotation": 78.0, "offset_x": 0.3292495608329773, "offset_y": 0.0016738176345825195}

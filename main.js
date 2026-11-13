@@ -103,8 +103,19 @@ function tex(u, srgb = true) {
 }
 
 const CLIPS = ['idle_ak', 'draw_ak', 'lookat01_ak', 'lookat03_ak', 'lookat01_draw_ak', 'lookat03_draw_ak'];
-// [rotation deg from item.json, z along the receiver toward the muzzle, y up], AK model space
-const STICKERS = [[-90, -0.030, 0.062], [93, 0.040, 0.064], [-105, 0.110, 0.060], [78, 0.180, 0.064]];
+// Foil stickers, exactly as the game places them: sampled in the receiver's sticker UV set
+// (TEXCOORD_1). centre = 0.5 + slot default offset (weapon_rif_ak47.vmat g_vStickerNOffset) +
+// item.json offset; scale = stickers across the UV set (g_vStickerNScale); rotation from item.json.
+// [rotation deg, centre u, centre v, scale]
+const STICKERS = [
+  [87, 0.5007, 0.0678, 12.90, 0.0173, 0.0591, 0.1844],
+  [-87, 0.5508, 0.0528, 14.27, 0.0181, 0.0736, 0.1361],
+  [-78, 0.6691, 0.0548, 13.45, 0.0182, 0.0717, 0.0219],
+  [102, 0.6143, 0.0597, 12.31, 0.0189, 0.0669, 0.0747],
+];
+// [4..6]: the same centres in AK model space. The sticker UV set overlaps other parts of the
+// mesh, so a sticker only draws within STK_RADIUS of its 3D centre.
+const STK_RADIUS = 0.055;
 const SOUND_FILES = {
   m1: 'movement1', m2: 'movement2', m3: 'movement3', draw: 'ak47_draw', bolt: 'ak47_boltpull_01',
 };
@@ -117,7 +128,8 @@ const EVENTS = {
   draw_ak: [[5, 'draw'], [8, 'bolt']],
 };
 
-let rig, mixer, clipMap = {}, weaponRoot, stkRoot;
+let rig, mixer, clipMap = {}, weaponRoot;
+const stkMeshes = [];
 const rigBones = new Map();
 
 function skinnedMeshes(root, filter) {
@@ -181,47 +193,66 @@ async function init() {
   msg('Loading weapon…');
   const akGltf = await load('assets/ak47.glb');
   const akMeshes = skinnedMeshes(akGltf.scene);
-  const akColor = tex('assets/tex/ak_color.jpg');
+  const akColor = tex('assets/tex/ak_color_game.jpg');
   const akORM = tex('assets/tex/ak_orm.png', false);
   const akNormal = tex('assets/tex/ak_normal.jpg', false);
+  const akRough = tex('assets/tex/ak_rough_game.jpg', false);
+  const stkTex = await texLoader.loadAsync('assets/tex/sticker_bolt_strike.png');
+  stkTex.colorSpace = THREE.SRGBColorSpace;
+  stkTex.flipY = false;
+  stkTex.anisotropy = 8;
+  stkTex.wrapS = stkTex.wrapT = THREE.ClampToEdgeWrapping;
+  const stkU = window.__stkU = {
+    uStk: { value: stkTex },
+    uStkC: { value: STICKERS.map((s) => new THREE.Vector2(s[1], s[2])) },
+    uStkS: { value: STICKERS.map((s) => s[3]) },
+    uStkP: { value: STICKERS.map((s) => new THREE.Vector3(s[4], s[5], s[6])) },
+    uStkR: { value: STICKERS.map((s) => -THREE.MathUtils.degToRad(s[0])) },
+  };
+  const patchStickers = (mat) => {
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, stkU);
+      sh.vertexShader = sh.vertexShader
+        .replace('void main() {', 'attribute vec2 stkUv;\nvarying vec2 vStkUv;\nvarying vec3 vStkP;\nvoid main() {')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvStkUv = stkUv;\nvStkP = position;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('void main() {', `uniform sampler2D uStk;
+uniform vec2 uStkC[4]; uniform float uStkS[4]; uniform float uStkR[4]; uniform vec3 uStkP[4];
+varying vec2 vStkUv; varying vec3 vStkP;
+void main() {`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+float stkMask = 0.0;
+for (int i = 0; i < 4; i++) {
+  vec2 d = vStkUv - uStkC[i];
+  float a = uStkR[i]; float cs = cos(a), sn = sin(a);
+  vec2 p = vec2(cs * d.x - sn * d.y, sn * d.x + cs * d.y) * uStkS[i] + 0.5;
+  float inside = step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
+  vec4 s = texture2D(uStk, clamp(p, 0.0, 1.0));
+  float k = s.a * inside * step(distance(vStkP, uStkP[i]), ${STK_RADIUS.toFixed(3)});
+  diffuseColor.rgb = mix(diffuseColor.rgb, s.rgb, k);
+  stkMask = max(stkMask, k);
+}`)
+        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 1.0, stkMask);')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.3, stkMask);');
+    };
+  };
   let akWeaponBone;
   for (const m of akMeshes) {
     if (/sticker_gaps/.test(m.material.name)) { m.visible = false; }
     else {
       m.material = new THREE.MeshPhysicalMaterial({
         map: akColor, normalMap: akNormal, normalScale: new THREE.Vector2(0.85, -0.85),
-        aoMap: akORM, roughnessMap: akORM, metalnessMap: akORM, roughness: 1, metalness: 1,
+        aoMap: akORM, roughnessMap: akRough, metalnessMap: akORM, roughness: 1, metalness: 1,
         envMapIntensity: 0.55, clearcoat: 0.12, clearcoatRoughness: 0.35,
       });
+      patchStickers(m.material);
+      stkMeshes.push(m);
+      m.geometry.setAttribute('stkUv', m.geometry.attributes.uv1);
     }
     akWeaponBone = m.skeleton.bones.findIndex((b) => b.name === 'weapon');
     const ibm = m.skeleton.boneInverses[akWeaponBone].clone();
     bindToRig(m);
     window.__akIBM = ibm;
-  }
-
-  // Foil stickers: four decals on the receiver's camera-facing side. Rotations are the ones
-  // from item.json; positions follow the in-game slot band on the front half of the receiver.
-  const stkTex = await texLoader.loadAsync('assets/tex/sticker_lightning.png');
-  stkTex.colorSpace = THREE.SRGBColorSpace;
-  stkTex.anisotropy = 8;
-  const stkMat = new THREE.MeshStandardMaterial({
-    map: stkTex, transparent: true, depthWrite: false, roughness: 0.3, metalness: 0.35,
-    envMapIntensity: 1.2, side: THREE.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-  });
-  const stkGeo = new THREE.PlaneGeometry(0.072, 0.082);
-  stkRoot = new THREE.Group();
-  stkRoot.matrixAutoUpdate = false;
-  stkRoot.matrix.copy(window.__akIBM);
-  rigBones.get('weapon').add(stkRoot);
-  const faceX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-  for (const [deg, z, y] of STICKERS) {
-    const s = new THREE.Mesh(stkGeo, stkMat);
-    s.position.set(0.0305, y, z);
-    s.quaternion.copy(faceX).multiply(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(deg)));
-    stkRoot.add(s);
   }
 
   msg('Loading gloves and arms…');
@@ -247,8 +278,9 @@ async function init() {
 
 // ---------------------------------------------------------------- charm (pendulum)
 const charm = { group: null, pivot: new THREE.Group(), dir: new THREE.Vector3(0, -1, 0), vel: new THREE.Vector3(), prev: null, prevVel: new THREE.Vector3() };
-// attachment point in AK model space (x = sticker side, y = up, z = toward muzzle)
-const CHARM_ATTACH = new THREE.Vector3(0.040, 0.095, 0.180);
+// charm pivot in AK model space (x = sticker side, y = up, z = toward muzzle), metres:
+// model keychain attachment (weapon_rif_ak47.vmdl, origin 5.598,0.926,-0.742 in) + item.json offset (9.260,0.678,2.260 in), 0.0254 m/in
+const CHARM_ATTACH = new THREE.Vector3(0.0407, 0.0385, 0.3774);
 async function initCharm() {
   const g = await load('assets/charm/kc_wpn_ak_jelly.glb');
   g.scene.traverse((o) => {
@@ -293,6 +325,76 @@ function updateCharm(dt) {
   charm.pivot.position.copy(pivotW);
   charm.pivot.quaternion.copy(swingQ).multiply(baseQ);
   charm.pivot.scale.setScalar(1);
+}
+
+// ---------------------------------------------------------------- sticker editor
+// Drag a sticker over the receiver to place it, wheel = scale, shift+wheel = rotate.
+// The panel prints the STICKERS table to paste into this file.
+function initStickerEditor() {
+  const U = window.__stkU, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:12px;top:12px;z-index:9;background:#000a;color:#fff;font:12px monospace;padding:8px;border-radius:6px;max-width:420px';
+  box.innerHTML = '<label><input type="checkbox" id="cStk"> Edit stickers</label> <button id="bStkCopy">Export</button><pre id="stkOut" style="margin:6px 0 0;white-space:pre-wrap"></pre>';
+  document.body.appendChild(box);
+  const out = box.querySelector('#stkOut');
+  const modelInv = new THREE.Matrix4();
+  const table = () => {
+    const rows = STICKERS.map((s, i) => `  [${Math.round(-THREE.MathUtils.radToDeg(U.uStkR.value[i]))}, ${U.uStkC.value[i].x.toFixed(4)}, ${U.uStkC.value[i].y.toFixed(4)}, ${U.uStkS.value[i].toFixed(2)}, ${U.uStkP.value[i].x.toFixed(4)}, ${U.uStkP.value[i].y.toFixed(4)}, ${U.uStkP.value[i].z.toFixed(4)}],`);
+    return 'const STICKERS = [\n' + rows.join('\n') + '\n];';
+  };
+  const refresh = () => { out.textContent = table() + (sel >= 0 ? `\nselected: ${sel + 1}` : ''); };
+  let sel = -1, drag = false;
+  const hit = (e) => {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const h = ray.intersectObjects(stkMeshes, false)[0];
+    if (!h || !h.uv1) return null;
+    const wb = rigBones.get('weapon');
+    wb.updateWorldMatrix(true, false);
+    modelInv.multiplyMatrices(wb.matrixWorld, window.__akIBM).invert();
+    return { uv: h.uv1, p: h.point.clone().applyMatrix4(modelInv) };
+  };
+  const pick = (h) => {
+    let best = -1, bd = 0.06;
+    U.uStkP.value.forEach((p, i) => { const d = p.distanceTo(h.p); if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  const on = () => box.querySelector('#cStk').checked;
+  addEventListener('pointerdown', (e) => {
+    if (!on() || e.target !== renderer.domElement) return;
+    const h = hit(e); if (!h) return;
+    const i = pick(h); if (i < 0) return;
+    sel = i; drag = true; controls.enabled = false;
+    e.stopImmediatePropagation(); refresh();
+  }, true);
+  addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const h = hit(e); if (!h) return;
+    U.uStkC.value[sel].set(h.uv.x, h.uv.y);
+    U.uStkP.value[sel].copy(h.p);
+    refresh();
+  }, true);
+  addEventListener('pointerup', () => { if (drag) { drag = false; controls.enabled = $('cFree').checked; } }, true);
+  addEventListener('wheel', (e) => {
+    if (!on() || sel < 0) return;
+    const h = hit(e); if (!h || pick(h) !== sel) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.shiftKey) U.uStkR.value[sel] -= THREE.MathUtils.degToRad(Math.sign(e.deltaY) * 3);
+    else U.uStkS.value[sel] *= e.deltaY > 0 ? 1.03 : 1 / 1.03;
+    refresh();
+  }, { capture: true, passive: false });
+  box.querySelector('#bStkCopy').onclick = () => {
+    const t = table();
+    localStorage.setItem('stickers_export', t);
+    window.__stkExport = t;
+    navigator.clipboard?.writeText(t).catch(() => {});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain' }));
+    a.download = 'stickers_export.txt'; a.click();
+    out.textContent = t + '\nEXPORTED';
+  };
+  refresh();
 }
 
 // ---------------------------------------------------------------- audio
@@ -391,7 +493,8 @@ init().then(() => {
   mixer.addEventListener('finished', (e) => {
     if (e.action === current && current._name !== 'idle_ak') idle();
   });
-  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm, stkRoot };
+  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm };
+  initStickerEditor();
   msg('Ready');
   $('start').style.display = '';
   $('start').onclick = async () => {
