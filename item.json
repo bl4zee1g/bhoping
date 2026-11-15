@@ -7,8 +7,7 @@
       {"slot": 3, "id": 7901, "rotation": 93.0, "offset_x": 0.2097722291946411, "offset_y": -0.0027854740619659424},
       {"slot": 3, "id": 7901, "rotation": -105.0, "offset_x": 0.2763873338699341, "offset_y": 0.0024720728397369385},
       {"slot": 3, "id": 7901, "rotation": 78.0, "offset_x": 0.3292495608329773, "offset_y": 0.0016738176345825195}
-    ],
-    "charm": {"id": 18, "name": "kc_wpn_ak_jelly", "offset": [9.260273933410645, 0.6778421401977539, 2.2599234580993652], "pattern": 77733}
+    ]
   },
   "gloves": {"name": "Sport Gloves | Pandora's Box", "defindex": 5030, "paintindex": 10037, "paintseed": 956, "wear": 0.0699811652302742},
   "arms": {"agent": "Vypa | Guerrilla Warfare", "model": "tm_jungle_raider_variante"}

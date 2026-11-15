@@ -1,10 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
-import { OrbitControls } from './vendor/jsm/controls/OrbitControls.js';
 
-const FPS = 30;                       // CS2 clip frame rate; event times in the clips are frames
-const $ = (id) => document.getElementById(id);
-const msg = (t) => ($('msg').textContent = t);
+const FPS = 30;                       // CS2 clip frame rate
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -62,22 +59,16 @@ scene.add(fill);
 // Viewmodel space: Source (x fwd, y left, z up) -> glTF (+z fwd, +x left, +y up), so the
 // camera sits at the origin and looks down +Z. CS2 default viewmodel_fov 68 @ 4:3 => 54deg vertical.
 const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.005, 20);
-camera.rotation.y = Math.PI;
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enabled = false;
 camera.position.set(0, 0, 0);
-camera.rotation.set(0, Math.PI, 0);   // OrbitControls' constructor resets orientation
+camera.rotation.set(0, Math.PI, 0);
 
 // The inspect view sits further back than a live viewmodel: the whole gun reads at once and
 // the hands stay inside the frame. zoom keeps the 68deg perspective and only changes scale.
 const VM_ZOOM = 0.7;
-function setFov(h) {
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(h / 2)) * 0.75));
-  camera.zoom = VM_ZOOM;
-  camera.updateProjectionMatrix();
-  $('fovLabel').textContent = h;
-}
-setFov(68);
+const VM_FOV = 68;
+camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(VM_FOV / 2)) * 0.75));
+camera.zoom = VM_ZOOM;
+camera.updateProjectionMatrix();
 
 // viewmodel_offset (2.5, 0, -1.5) inches: right / forward / up, pulled right so the gun sits
 // in the lower-right like the in-game inspect camera
@@ -89,7 +80,7 @@ scene.add(vm);
 const BLANK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const mgr = new THREE.LoadingManager();
 // the game's own PNGs next to the .glb files are replaced by baked textures below
-mgr.setURLModifier((u) => (u.endsWith('.png') && !u.includes('/charm/') && !u.startsWith('data:') ? BLANK : u));
+mgr.setURLModifier((u) => (u.endsWith('.png') && !u.startsWith('data:') ? BLANK : u));
 const gltfLoader = new GLTFLoader(mgr);
 const texLoader = new THREE.TextureLoader();
 const load = (u) => gltfLoader.loadAsync(u);
@@ -102,7 +93,7 @@ function tex(u, srgb = true) {
   return t;
 }
 
-const CLIPS = ['idle_ak', 'draw_ak', 'lookat01_ak', 'lookat03_ak', 'lookat01_draw_ak', 'lookat03_draw_ak'];
+const CLIPS = ['idle_ak', 'lookat01_ak', 'lookat03_ak', 'lookat01_draw_ak', 'lookat03_draw_ak'];
 // Foil stickers, exactly as the game places them: sampled in the receiver's sticker UV set
 // (TEXCOORD_1). centre = 0.5 + slot default offset (weapon_rif_ak47.vmat g_vStickerNOffset) +
 // item.json offset; scale = stickers across the UV set (g_vStickerNScale); rotation from item.json.
@@ -116,20 +107,8 @@ const STICKERS = [
 // [4..6]: the same centres in AK model space. The sticker UV set overlaps other parts of the
 // mesh, so a sticker only draws within STK_RADIUS of its 3D centre.
 const STK_RADIUS = 0.055;
-const SOUND_FILES = {
-  m1: 'movement1', m2: 'movement2', m3: 'movement3', draw: 'ak47_draw', bolt: 'ak47_boltpull_01',
-};
-// sound events per clip, in frames (read from the .vnmclip event tracks)
-const INSPECT1 = [[2, 'm3'], [66, 'm1'], [105, 'm2']];
-const INSPECT3 = [[6, 'm3'], [25, 'm1'], [100, 'm2']];
-const EVENTS = {
-  lookat01_ak: INSPECT1, lookat01_draw_ak: INSPECT1,
-  lookat03_ak: INSPECT3, lookat03_draw_ak: INSPECT3,
-  draw_ak: [[5, 'draw'], [8, 'bolt']],
-};
 
 let rig, mixer, clipMap = {}, weaponRoot;
-const stkMeshes = [];
 const rigBones = new Map();
 
 function skinnedMeshes(root, filter) {
@@ -169,7 +148,6 @@ function bindToRig(mesh) {
 }
 
 async function init() {
-  msg('Loading animation rig…');
   const rigGltf = await load('assets/anim/lookat01_ak.glb');
   rig = rigGltf;
   skinnedMeshes(rig.scene).forEach((m) => m.removeFromParent());
@@ -190,7 +168,6 @@ async function init() {
   weaponRoot.quaternion.copy(rigBones.get('root_motion').quaternion).invert();
   rigBones.get('wpn').add(weaponRoot);
 
-  msg('Loading weapon…');
   const akGltf = await load('assets/ak47.glb');
   const akMeshes = skinnedMeshes(akGltf.scene);
   const akColor = tex('assets/tex/ak_color_game.jpg');
@@ -202,7 +179,7 @@ async function init() {
   stkTex.flipY = false;
   stkTex.anisotropy = 8;
   stkTex.wrapS = stkTex.wrapT = THREE.ClampToEdgeWrapping;
-  const stkU = window.__stkU = {
+  const stkU = {
     uStk: { value: stkTex },
     uStkC: { value: STICKERS.map((s) => new THREE.Vector2(s[1], s[2])) },
     uStkS: { value: STICKERS.map((s) => s[3]) },
@@ -236,7 +213,6 @@ for (int i = 0; i < 4; i++) {
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.3, stkMask);');
     };
   };
-  let akWeaponBone;
   for (const m of akMeshes) {
     if (/sticker_gaps/.test(m.material.name)) { m.visible = false; }
     else {
@@ -246,16 +222,11 @@ for (int i = 0; i < 4; i++) {
         envMapIntensity: 0.55, clearcoat: 0.12, clearcoatRoughness: 0.35,
       });
       patchStickers(m.material);
-      stkMeshes.push(m);
       m.geometry.setAttribute('stkUv', m.geometry.attributes.uv1);
     }
-    akWeaponBone = m.skeleton.bones.findIndex((b) => b.name === 'weapon');
-    const ibm = m.skeleton.boneInverses[akWeaponBone].clone();
     bindToRig(m);
-    window.__akIBM = ibm;
   }
 
-  msg('Loading gloves and arms…');
   const armsGltf = await load('assets/arms.glb');
   const gloveTex = tex('assets/tex/glove_color.jpg');
   const gloveNrm = tex('assets/tex/glove_normal.jpg', false);
@@ -268,156 +239,12 @@ for (int i = 0; i < 4; i++) {
       : new THREE.MeshStandardMaterial({ map: armTex, normalMap: armNrm, normalScale: new THREE.Vector2(1, -1), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.35, side: THREE.DoubleSide });
     bindToRig(m);
   }
-
-  msg('Loading charm…');
-  await initCharm();
-
-  msg('Loading sounds…');
-  await initAudio();
-}
-
-// ---------------------------------------------------------------- charm (pendulum)
-const charm = { group: null, pivot: new THREE.Group(), dir: new THREE.Vector3(0, -1, 0), vel: new THREE.Vector3(), prev: null, prevVel: new THREE.Vector3() };
-// charm pivot in AK model space (x = sticker side, y = up, z = toward muzzle), metres:
-// model keychain attachment (weapon_rif_ak47.vmdl, origin 5.598,0.926,-0.742 in) + item.json offset (9.260,0.678,2.260 in), 0.0254 m/in
-const CHARM_ATTACH = new THREE.Vector3(0.0407, 0.0385, 0.3774);
-async function initCharm() {
-  const g = await load('assets/charm/kc_wpn_ak_jelly.glb');
-  g.scene.traverse((o) => {
-    if (o.isMesh) {
-      const m = o.material;
-      m.metalness = /chain/.test(m.name) ? 0.9 : 0.1;
-      m.roughness = /chain/.test(m.name) ? 0.35 : 0.2;
-    }
-  });
-  charm.group = g.scene;
-  charm.pivot.add(charm.group);
-  scene.add(charm.pivot);
-}
-
-const akSpace = new THREE.Matrix4();
-const tmp = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), baseQ = new THREE.Quaternion(), swingQ = new THREE.Quaternion();
-function updateCharm(dt) {
-  const wb = rigBones.get('weapon');
-  if (!wb || !charm.group || dt <= 0) return;
-  wb.updateWorldMatrix(true, false);
-  akSpace.multiplyMatrices(wb.matrixWorld, window.__akIBM);        // AK model space -> world
-  const pivotW = CHARM_ATTACH.clone().applyMatrix4(akSpace);
-  akSpace.decompose(tmp, baseQ, new THREE.Vector3());
-  // pivot acceleration -> effective gravity
-  let acc = new THREE.Vector3();
-  if (charm.prev) {
-    const vel = pivotW.clone().sub(charm.prev).divideScalar(dt);
-    acc = vel.clone().sub(charm.prevVel).divideScalar(dt);
-    charm.prevVel.copy(vel);
-  }
-  charm.prev = pivotW.clone();
-  const g = new THREE.Vector3(0, -9.8, 0).sub(acc.clampLength(0, 40)).normalize();
-  // damped spring of the hang direction toward the effective gravity direction
-  const steps = Math.max(1, Math.ceil(dt / 0.008)), h = dt / steps;
-  for (let i = 0; i < steps; i++) {
-    const a = g.clone().sub(charm.dir).multiplyScalar(180).addScaledVector(charm.vel, -5.5);
-    charm.vel.addScaledVector(a, h);
-    charm.dir.addScaledVector(charm.vel, h).normalize();
-  }
-  const baseDown = new THREE.Vector3(0, -1, 0).applyQuaternion(baseQ);
-  swingQ.setFromUnitVectors(baseDown, charm.dir);
-  charm.pivot.position.copy(pivotW);
-  charm.pivot.quaternion.copy(swingQ).multiply(baseQ);
-  charm.pivot.scale.setScalar(1);
-}
-
-// ---------------------------------------------------------------- sticker editor
-// Drag a sticker over the receiver to place it, wheel = scale, shift+wheel = rotate.
-// The panel prints the STICKERS table to paste into this file.
-function initStickerEditor() {
-  const U = window.__stkU, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  const box = document.createElement('div');
-  box.style.cssText = 'position:fixed;left:12px;top:12px;z-index:9;background:#000a;color:#fff;font:12px monospace;padding:8px;border-radius:6px;max-width:420px';
-  box.innerHTML = '<label><input type="checkbox" id="cStk"> Edit stickers</label> <button id="bStkCopy">Export</button><pre id="stkOut" style="margin:6px 0 0;white-space:pre-wrap"></pre>';
-  document.body.appendChild(box);
-  const out = box.querySelector('#stkOut');
-  const modelInv = new THREE.Matrix4();
-  const table = () => {
-    const rows = STICKERS.map((s, i) => `  [${Math.round(-THREE.MathUtils.radToDeg(U.uStkR.value[i]))}, ${U.uStkC.value[i].x.toFixed(4)}, ${U.uStkC.value[i].y.toFixed(4)}, ${U.uStkS.value[i].toFixed(2)}, ${U.uStkP.value[i].x.toFixed(4)}, ${U.uStkP.value[i].y.toFixed(4)}, ${U.uStkP.value[i].z.toFixed(4)}],`);
-    return 'const STICKERS = [\n' + rows.join('\n') + '\n];';
-  };
-  const refresh = () => { out.textContent = table() + (sel >= 0 ? `\nselected: ${sel + 1}` : ''); };
-  let sel = -1, drag = false;
-  const hit = (e) => {
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
-    const h = ray.intersectObjects(stkMeshes, false)[0];
-    if (!h || !h.uv1) return null;
-    const wb = rigBones.get('weapon');
-    wb.updateWorldMatrix(true, false);
-    modelInv.multiplyMatrices(wb.matrixWorld, window.__akIBM).invert();
-    return { uv: h.uv1, p: h.point.clone().applyMatrix4(modelInv) };
-  };
-  const pick = (h) => {
-    let best = -1, bd = 0.06;
-    U.uStkP.value.forEach((p, i) => { const d = p.distanceTo(h.p); if (d < bd) { bd = d; best = i; } });
-    return best;
-  };
-  const on = () => box.querySelector('#cStk').checked;
-  addEventListener('pointerdown', (e) => {
-    if (!on() || e.target !== renderer.domElement) return;
-    const h = hit(e); if (!h) return;
-    const i = pick(h); if (i < 0) return;
-    sel = i; drag = true; controls.enabled = false;
-    e.stopImmediatePropagation(); refresh();
-  }, true);
-  addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const h = hit(e); if (!h) return;
-    U.uStkC.value[sel].set(h.uv.x, h.uv.y);
-    U.uStkP.value[sel].copy(h.p);
-    refresh();
-  }, true);
-  addEventListener('pointerup', () => { if (drag) { drag = false; controls.enabled = $('cFree').checked; } }, true);
-  addEventListener('wheel', (e) => {
-    if (!on() || sel < 0) return;
-    const h = hit(e); if (!h || pick(h) !== sel) return;
-    e.preventDefault(); e.stopImmediatePropagation();
-    if (e.shiftKey) U.uStkR.value[sel] -= THREE.MathUtils.degToRad(Math.sign(e.deltaY) * 3);
-    else U.uStkS.value[sel] *= e.deltaY > 0 ? 1.03 : 1 / 1.03;
-    refresh();
-  }, { capture: true, passive: false });
-  box.querySelector('#bStkCopy').onclick = () => {
-    const t = table();
-    localStorage.setItem('stickers_export', t);
-    window.__stkExport = t;
-    navigator.clipboard?.writeText(t).catch(() => {});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain' }));
-    a.download = 'stickers_export.txt'; a.click();
-    out.textContent = t + '\nEXPORTED';
-  };
-  refresh();
-}
-
-// ---------------------------------------------------------------- audio
-let actx, buffers = {};
-async function initAudio() {
-  actx = new (window.AudioContext || window.webkitAudioContext)();
-  await Promise.all(Object.entries(SOUND_FILES).map(async ([k, f]) => {
-    const r = await fetch(`assets/snd/${f}.wav`);
-    buffers[k] = await actx.decodeAudioData(await r.arrayBuffer());
-  }));
-}
-function playSound(k) {
-  if (!$('cSound').checked || !buffers[k]) return;
-  const src = actx.createBufferSource();
-  const gain = actx.createGain();
-  gain.gain.value = k === 'm1' || k === 'm2' || k === 'm3' ? 0.7 : 0.9;
-  src.buffer = buffers[k];
-  src.connect(gain).connect(actx.destination);
-  src.start();
 }
 
 // ---------------------------------------------------------------- animation state
-let current = null, lastTime = 0, variation = 1;
+// inspect plays variation 1 normally, variation 3 on a 20% roll
+const pickVariation = () => (Math.random() < 0.2 ? 3 : 1);
+let current = null;
 function play(name, { loop = false, fade = 0.08 } = {}) {
   const clip = clipMap[name];
   const next = mixer.clipAction(clip);
@@ -428,45 +255,16 @@ function play(name, { loop = false, fade = 0.08 } = {}) {
   if (current && current !== next) next.crossFadeFrom(current, fade, false);
   next.play();
   current = next;
-  current.userData = { name, last: 0 };
   next._name = name;
 }
 function idle() { play('idle_ak', { loop: true, fade: 0.15 }); }
 const busy = () => current && current._name !== 'idle_ak';
-const inspect = () => { if (!busy()) play(`lookat0${variation}_ak`); };
-const draw = () => play('draw_ak');
-const drawInspect = () => play(`lookat0${variation}_draw_ak`);
-const cycle = () => { variation = variation === 1 ? 3 : 1; $('varLabel').textContent = variation; };
+const inspect = () => { if (!busy()) play(`lookat0${pickVariation()}_ak`); };
 
-function pumpEvents() {
-  if (!current) return;
-  const name = current._name, ev = EVENTS[name];
-  const t = current.time;
-  if (ev) {
-    const prev = current.userData.last;
-    for (const [frame, k] of ev) {
-      const ft = frame / FPS;
-      if (prev <= ft && ft < t) playSound(k);
-    }
-  }
-  current.userData.last = t;
-}
-
-// ---------------------------------------------------------------- UI
-$('bInspect').onclick = inspect;
-$('bVar').onclick = cycle;
-$('bDraw').onclick = draw;
-$('bDrawInspect').onclick = drawInspect;
-$('cFree').onchange = (e) => {
-  controls.enabled = e.target.checked;
-  if (!controls.enabled) { camera.position.set(0, 0, 0); camera.rotation.set(0, Math.PI, 0); }
-  else { camera.position.set(-0.45, 0.1, 0.45); controls.target.set(0, 0, 0.45); controls.update(); }
-};
-$('rFov').oninput = (e) => setFov(+e.target.value);
+// ---------------------------------------------------------------- input
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  const k = e.key.toLowerCase();
-  if (k === 'f') inspect(); else if (k === 'v') cycle(); else if (k === 'q') draw(); else if (k === 'r') drawInspect();
+  if (e.key.toLowerCase() === 'f') inspect();
 });
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
@@ -481,11 +279,8 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer) {
     mixer.update(dt);
-    pumpEvents();
     scene.updateMatrixWorld(true);
-    updateCharm(dt);
   }
-  if (controls.enabled) controls.update();
   renderer.render(scene, camera);
 }
 
@@ -493,14 +288,6 @@ init().then(() => {
   mixer.addEventListener('finished', (e) => {
     if (e.action === current && current._name !== 'idle_ak') idle();
   });
-  window.__vm = { renderer, play, idle, inspect, draw, drawInspect, rigBones, scene, camera, vm, charm };
-  initStickerEditor();
-  msg('Ready');
-  $('start').style.display = '';
-  $('start').onclick = async () => {
-    if (actx && actx.state !== 'running') await actx.resume();
-    $('status').classList.add('hide');
-    drawInspect();
-  };
+  play(`lookat0${pickVariation()}_draw_ak`);
   frame();
-}).catch((e) => { console.error(e); msg('Error: ' + e.message); });
+}).catch((e) => { console.error(e); });
