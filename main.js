@@ -266,6 +266,8 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.key.toLowerCase() === 'f') inspect();
 });
+// touch: tapping anywhere triggers inspect (mouse clicks do nothing)
+addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') inspect(); });
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
